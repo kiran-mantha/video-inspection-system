@@ -1,0 +1,17 @@
+# Video Inspection System Dependencies
+# =====================================
+
+# YOLOv8 for person detection
+ultralytics>=8.0.0
+
+# Video and image processing
+opencv-python>=4.8.0
+Pillow>=9.0.0
+numpy>=1.24.0
+
+# Action recognition (VideoMAE Transformer)
+transformers>=4.35.0
+torch>=2.0.0
+
+# Claude API for natural language generation
+anthropic>=0.18.0
