@@ -2,7 +2,7 @@
 # This module handles sophisticated action recognition using a pre-trained
 # VideoMAE model fine-tuned on the Kinetics-400 dataset.
 
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import numpy as np
 
 # Lazy imports to avoid loading heavy models at module import time
