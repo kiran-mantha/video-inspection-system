@@ -1,4 +1,6 @@
 # Configuration settings for video inspection system
+# =================================================
+# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
 import os
 from pathlib import Path
 
@@ -9,56 +11,89 @@ from pathlib import Path
 # Claude API key - loaded from environment variable
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-# Claude model to use for summarization
+# Claude model to use for vision analysis
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
-# Claude prompt
-CLAUDE_PROMPT = """You are a security footage analysis assistant.
-Your task is to convert structured detection facts into a brief natural language summary.
+# Claude Vision prompt for frame analysis
+CLAUDE_VISION_PROMPT = """You are a security footage analyst. Analyze the provided frame(s) from surveillance footage.
+
+TASK:
+1. Describe what you observe in 1-2 concise sentences
+2. Focus on: people present, their actions, and any objects they are holding or interacting with
+3. Note any potentially dangerous items (weapons, suspicious objects)
 
 RULES:
-1. Output EXACTLY 2-3 sentences, no more
-2. Only state what is provided in the facts - do NOT speculate or add details
-3. Use simple, clear language
-4. Focus on: who was detected, what they did, and for how long
-5. If actions are detected, mention the most prominent one
-6. Do NOT make assumptions about intent or identity"""
+- Only describe what is VISIBLE in the image(s)
+- Do NOT speculate about intent or identity
+- Do NOT make assumptions about what happened before or after
+- Be factual and objective
+- If you see a weapon (gun, knife, etc.), explicitly mention it
+
+OUTPUT FORMAT:
+Observation: [1-2 sentences describing the scene]
+Objects: [list key objects detected, especially any weapons]
+Risk_Level: [LOW / MEDIUM / HIGH]"""
 
 # ============================================================
 # Model Configuration
 # ============================================================
 
-# YOLOv8 model for person detection
+# YOLOv8 model for object detection
 YOLO_MODEL_PATH = "yolov8n.pt"
 
-# VideoMAE model for action recognition (Hugging Face)
-VIDEOMAE_MODEL = "MCG-NJU/videomae-base-finetuned-kinetics"
+# Minimum confidence threshold for detections
+DETECTION_CONFIDENCE_THRESHOLD = 0.4
 
-# Person class ID in COCO dataset (used by YOLO)
+# ============================================================
+# COCO Class IDs for Detection
+# ============================================================
+
+# Person class ID
 PERSON_CLASS_ID = 0
 
-# Minimum confidence threshold for person detection
-PERSON_CONFIDENCE_THRESHOLD = 0.5
+# Classes to always detect (subset of COCO 80 classes)
+# Format: {class_id: (class_name, is_dangerous)}
+DETECTION_CLASSES = {
+    0: ("person", False),
+    24: ("backpack", False),
+    25: ("umbrella", False),
+    26: ("handbag", False),
+    27: ("tie", False),
+    28: ("suitcase", False),
+    39: ("bottle", False),
+    43: ("knife", True),  # DANGEROUS
+    76: ("scissors", True),  # DANGEROUS
+    # Note: COCO does not have "gun" - Claude Vision will identify firearms
+}
+
+# IDs of dangerous objects (triggers HIGH priority)
+DANGEROUS_CLASS_IDS = {43, 76}  # knife, scissors
 
 # ============================================================
 # Frame Extraction Configuration
 # ============================================================
 
-# Default frames per second for extraction
+# Frames per second for extraction
 DEFAULT_FPS = 1
+
+# Maximum frames to extract from video
+MAX_FRAMES = 30
+
+# Maximum frames to send to Claude Vision (cost control)
+MAX_FRAMES_FOR_VISION = 3
 
 # Temporary directory for extracted frames
 TEMP_FRAMES_DIR = Path("./temp_frames")
 
-# Number of frames for action recognition (VideoMAE expects 16 frames)
-ACTION_RECOGNITION_NUM_FRAMES = 16
-
 # ============================================================
-# Action Recognition Configuration
+# Safety Classification Rules
 # ============================================================
 
-# Top-k actions to consider from model predictions
-TOP_K_ACTIONS = 3
+# Safety levels
+SAFETY_SAFE = "SAFE"
+SAFETY_UNSAFE = "UNSAFE"
+SAFETY_REVIEW = "REVIEW"
 
-# Minimum confidence for action to be considered valid
-ACTION_CONFIDENCE_THRESHOLD = 0.2
+# Rule: If Claude reports HIGH risk, mark as UNSAFE
+# Rule: If dangerous object detected by YOLO, mark as UNSAFE
+# Rule: If no person detected, mark as SAFE

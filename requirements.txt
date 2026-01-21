@@ -1,17 +1,19 @@
-# Video Inspection System Dependencies
-# =====================================
+# Video Inspection System - Requirements
+# ======================================
+# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
 
-# YOLOv8 for person detection
-ultralytics>=8.0.0
-
-# Video and image processing
+# Core dependencies
 opencv-python>=4.8.0
-Pillow>=9.0.0
 numpy>=1.24.0
 
-# Action recognition (VideoMAE Transformer)
-transformers>=4.35.0
-torch>=2.0.0
+# Object detection
+ultralytics>=8.0.0  # YOLOv8
 
-# Claude API for natural language generation
+# Claude API for Vision analysis
 anthropic>=0.18.0
+
+# System monitoring (optional, for test.py)
+psutil>=5.9.0
+
+# Image processing
+Pillow>=10.0.0

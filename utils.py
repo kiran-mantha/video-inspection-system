@@ -29,7 +29,6 @@ def cleanup_frames(frame_paths: List[str]) -> None:
             if os.path.exists(path):
                 os.remove(path)
         except OSError as e:
-            # Log but don't raise - cleanup is best effort
             print(f"Warning: Could not remove frame {path}: {e}")
 
     # Try to remove the temp directory if empty
@@ -76,7 +75,7 @@ def format_duration(seconds: float) -> str:
         seconds: Duration in seconds
 
     Returns:
-        Human-readable duration string, e.g., "2 minutes 30 seconds"
+        Human-readable duration string
     """
     if seconds < 1:
         return "less than a second"

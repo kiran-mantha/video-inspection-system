@@ -1,255 +1,121 @@
-# 🎥 Video Inspection System
+# Video Inspection System
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/YOLOv8-Person%20Detection-green.svg" alt="YOLOv8">
-  <img src="https://img.shields.io/badge/VideoMAE-Action%20Recognition-purple.svg" alt="VideoMAE">
-  <img src="https://img.shields.io/badge/Claude-AI%20Summaries-orange.svg" alt="Claude API">
-</p>
+A practical, production-oriented video surveillance analysis system.
 
-A **plain Python** video surveillance analysis system that detects people and their actions using state-of-the-art deep learning models.
-
----
-
-## ✨ Features
-
-| Feature | Technology | Description |
-|---------|------------|-------------|
-| **Person Detection** | YOLOv8n | Fast and accurate detection of people in video frames |
-| **Action Recognition** | VideoMAE Transformer | 400+ action classes from Kinetics dataset |
-| **Natural Language** | Claude API | Converts structured facts to 2-3 sentence summaries |
-| **No Framework** | Pure Python | No Django, FastAPI, or web frameworks |
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        VIDEO INSPECTION PIPELINE                    │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   📹 Video    ──▶   🖼️ Frame        ──▶   👤 Person Detection    │
-│      File           Extraction            (YOLOv8n)                 │
-│                     (OpenCV)                                        │
-│                                                                     │
-│                           │                                         │
-│                           ▼                                         │
-│                                                                     │
-│   📄 Final    ◀──   🤖 Claude API   ◀──   🎬 Action Recognition  │
-│      Verdict        (Text Only)           (VideoMAE Transformer)    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+Video
+ ↓
+Frame Extraction (OpenCV)
+ ↓
+Object Detection (YOLOv8)
+ ↓
+Frame Gating (Cost Control)
+ ↓
+Claude Vision (Semantic Analysis)
+ ↓
+Rule Engine
+ ↓
+SAFE / UNSAFE + Summary
 ```
 
----
+## Features
 
-## 📦 Installation
+- **Object Detection**: YOLOv8n detects people, weapons (knife, scissors), and other objects
+- **Frame Gating**: Reduces costs by skipping LLM calls when no person is detected
+- **Claude Vision**: Sends selected frames for semantic understanding
+- **Rule Engine**: Deterministic safety classification
+- **System Monitoring**: Tracks CPU, RAM, and GPU usage during analysis
 
-### 1. Clone the Repository
+## Design Principles
+
+1. **Deterministic before probabilistic** - YOLO runs first
+2. **Cheap models before expensive models** - LLM called only when needed
+3. **Explain, don't guess** - Claude describes only what's visible
+4. **Rules over intuition** - Final decision is rule-based
+5. **Human-readable output** - Clear safety verdicts
+
+## Installation
 
 ```bash
-git clone https://github.com/yourusername/video-inspection-system.git
-cd video-inspection-system
-```
-
-### 2. Create Virtual Environment
-
-```bash
+# Create virtual environment
 python -m venv virtual_env
+virtual_env\Scripts\activate  # Windows
+# source virtual_env/bin/activate  # Linux/Mac
 
-# Windows
-.\virtual_env\Scripts\activate
-
-# Linux/macOS
-source virtual_env/bin/activate
-```
-
-### 3. Install Dependencies
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 4. Set Environment Variable
+## Configuration
+
+Set your Claude API key:
 
 ```bash
-# Windows PowerShell
-$env:ANTHROPIC_API_KEY="your-api-key-here"
-
-# Windows CMD
-set ANTHROPIC_API_KEY=your-api-key-here
-
-# Linux/macOS
-export ANTHROPIC_API_KEY="your-api-key-here"
+set ANTHROPIC_API_KEY=your_api_key_here  # Windows
+# export ANTHROPIC_API_KEY=your_api_key_here  # Linux/Mac
 ```
 
----
+## Usage
 
-## 🚀 Usage
-
-### Basic Usage
-
-```python
-from video_inspector import inspect_video
-
-# Analyze a video file
-result = inspect_video("path/to/your/video.mp4")
-print(result)
+```bash
+python test.py
 ```
 
-### Example Outputs
+Then enter the path to your video file when prompted.
 
-| Scenario | Output |
-|----------|--------|
-| No person detected | `"The footage is safe."` |
-| Person walking | `"A person was detected in the footage for 15 seconds. They were observed walking through the area."` |
-| Person with actions | `"A person appeared in the footage for approximately 30 seconds. The individual was seen dancing and appears to have been moving throughout."` |
-
----
-
-## 📁 Project Structure
+### Example Output
 
 ```
-video_processing_with_ml/
-├── video_inspector.py      # Main module with 6 core functions
-├── action_recognizer.py    # VideoMAE transformer integration
-├── config.py               # Configuration settings
-├── utils.py                # Helper utilities
-├── requirements.txt        # Python dependencies
-└── README.md               # This file
+======================================================================
+VIDEO INSPECTION SYSTEM - TEST
+Architecture: YOLO → Frame Gating → Claude Vision → Rule Engine
+======================================================================
+
+📁 Video: C:\Users\Downloads\surveillance.mp4
+
+📹 Extracting frames from video...
+   Extracted 15 frames
+🔍 Running object detection (YOLO)...
+   Found people in 12 frames
+   Objects: {'person': 12, 'knife': 3}
+🚦 Applying frame gating logic...
+   Potentially dangerous objects detected - requires analysis
+🧠 Analyzing 3 frames with Claude Vision...
+   Risk Level: HIGH
+⚖️  Applying safety rules...
+   Classification: UNSAFE
+🧹 Cleaned up temporary frames
+
+======================================================================
+📋 FINAL VERDICT:
+======================================================================
+
+A person is visible holding what appears to be a knife while moving through the scene.
+⚠️ The footage is UNSAFE and requires attention.
+
+⏱️  Total Processing Time: 4.23 seconds
 ```
 
----
+## Files
 
-## 🔧 API Reference
+| File | Purpose |
+|------|---------|
+| `video_inspector.py` | Main orchestration and all detection logic |
+| `config.py` | Configuration settings and prompts |
+| `utils.py` | Utility functions |
+| `test.py` | Test script with system monitoring |
+| `system_monitor.py` | CPU/RAM/GPU monitoring |
 
-### Core Functions
+## Requirements
 
-#### `extract_frames(video_path, fps=1)`
-Extracts frames from video at specified FPS rate.
+- Python 3.9+
+- OpenCV
+- Ultralytics (YOLOv8)
+- Anthropic SDK
+- psutil (optional, for monitoring)
 
-```python
-frames = extract_frames("video.mp4", fps=1)
-# Returns: ['temp_frames/video_frame_00000.png', ...]
-```
+## License
 
-#### `detect_people(frame_paths)`
-Runs YOLOv8n person detection on frames.
-
-```python
-detections = detect_people(frames)
-# Returns: [{'frame_index': 0, 'timestamp': 0.0, 'bounding_boxes': [...], 'confidences': [...]}]
-```
-
-#### `infer_actions(detections, frame_paths)`
-Uses VideoMAE to recognize actions.
-
-```python
-action_data = infer_actions(detections, frames)
-# Returns: {'person_detected': True, 'actions': [{'action': 'walking', 'confidence': 0.85}], ...}
-```
-
-#### `build_summary(action_data)`
-Creates structured JSON facts.
-
-```python
-summary = build_summary(action_data)
-# Returns: {'person_present': True, 'detected_actions': ['walking'], ...}
-```
-
-#### `summarize_with_claude(summary)`
-Converts facts to natural language.
-
-```python
-verdict = summarize_with_claude(summary)
-# Returns: "A person was detected walking through the area for 10 seconds."
-```
-
-#### `inspect_video(video_path)`
-Main orchestration function.
-
-```python
-result = inspect_video("surveillance.mp4")
-# Returns: Complete inspection verdict
-```
-
----
-
-## 🎯 Supported Actions
-
-The VideoMAE model recognizes **400+ action classes** including:
-
-<details>
-<summary>Click to expand action categories</summary>
-
-### Movement
-- walking, running, jogging, crawling
-- jumping, hopping, skipping
-
-### Gestures
-- waving, pointing, clapping
-- shaking hands, hugging
-
-### Daily Activities
-- eating, drinking, cooking
-- reading, writing, typing
-- using phone, taking photos
-
-### Sports & Exercise
-- dancing, exercising, stretching
-- playing sports (basketball, soccer, etc.)
-
-### Object Interactions
-- opening/closing doors
-- carrying objects
-- pushing, pulling
-
-</details>
-
----
-
-## ⚙️ Configuration
-
-Edit `config.py` to customize:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `PERSON_CONFIDENCE_THRESHOLD` | 0.5 | Minimum confidence for person detection |
-| `DEFAULT_FPS` | 1 | Frames per second for extraction |
-| `TOP_K_ACTIONS` | 3 | Number of top actions to report |
-| `ACTION_CONFIDENCE_THRESHOLD` | 0.2 | Minimum confidence for actions |
-
----
-
-## 🔒 Privacy & Security
-
-> **Claude API receives ONLY structured JSON facts — never images or video data.**
-
-```json
-// Example data sent to Claude
-{
-  "person_present": true,
-  "visibility_duration": "15 seconds",
-  "detected_actions": ["walking", "opening door"],
-  "movement": "walking"
-}
-```
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
-
----
-
-<p align="center">
-  Built with ❤️ using YOLOv8, VideoMAE, and Claude
-</p>
+MIT License

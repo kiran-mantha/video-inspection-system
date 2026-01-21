@@ -1,5 +1,6 @@
 # Test script for Video Inspection System
 # ========================================
+# Tests the new architecture: YOLO → Frame Gating → Claude Vision → Rule Engine
 
 import time
 
@@ -28,20 +29,20 @@ def main():
         print("❌ Error: No video path provided")
         return
 
-    print("=" * 60)
+    print("=" * 70)
     print("VIDEO INSPECTION SYSTEM - TEST")
-    print("=" * 60)
-    print(f"\nAnalyzing: {video_path}")
+    print("Architecture: YOLO → Frame Gating → Claude Vision → Rule Engine")
+    print("=" * 70)
+    print(f"\n📁 Video: {video_path}")
 
     # Capture baseline metrics BEFORE starting
     print("\n📊 Capturing baseline system metrics...")
     baseline = capture_baseline(sample_duration=1.0)
     print(
-        f"   ✓ Baseline captured: CPU {baseline.cpu_percent:.1f}% | "
-        f"RAM {baseline.memory_percent:.1f}%"
+        f"   ✓ Baseline: CPU {baseline.cpu_percent:.1f}% | RAM {baseline.memory_percent:.1f}%"
     )
 
-    print("\n📈 Starting inspection with system monitoring...\n")
+    print("\n" + "-" * 70)
 
     # Initialize metrics collector
     metrics_collector = MetricsCollector()
@@ -59,13 +60,13 @@ def main():
         # Stop monitoring
         metrics_collector.stop()
 
-        print("\n" + "=" * 60)
-        print("VERDICT:")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print("📋 FINAL VERDICT:")
+        print("=" * 70)
         print(f"\n{result}\n")
         print(f"⏱️  Total Processing Time: {elapsed_time:.2f} seconds")
 
-        # Print comparison: baseline vs during inspection
+        # Print system metrics comparison
         summary = metrics_collector.get_summary()
         print_comparison(baseline, summary)
 
@@ -78,6 +79,9 @@ def main():
     except Exception as e:
         metrics_collector.stop()
         print(f"\n❌ Unexpected error: {type(e).__name__}: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
