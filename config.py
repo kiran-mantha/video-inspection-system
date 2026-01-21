@@ -1,41 +1,73 @@
 # Configuration settings for video inspection system
 # =================================================
-# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
+# Architecture: YOLO Detection → Frame Gating → BLIP API → Rule Engine
 import os
 from pathlib import Path
 
 # ============================================================
-# API Configuration
+# BLIP API Configuration (Remote Docker Server)
 # ============================================================
 
-# Claude API key - loaded from environment variable
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# BLIP API server URL (running in Docker)
+# Format: http://<server-ip>:<port>
+# Examples:
+#   - http://localhost:5000 (if running locally)
+#   - http://192.168.1.100:5000 (remote server)
+#   - http://blip-server:5000 (Docker network)
+BLIP_API_URL = os.getenv("BLIP_API_URL", "http://100.65.72.122:5007")
 
-# Claude model to use for vision analysis
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+# API endpoints
+BLIP_ANALYZE_ENDPOINT = f"{BLIP_API_URL}/analyze"
+BLIP_HEALTH_ENDPOINT = f"{BLIP_API_URL}/health"
 
-# Claude Vision prompt for frame analysis
-CLAUDE_VISION_PROMPT = """You are a security footage analyst. Analyze the provided frame(s) from surveillance footage.
-
-TASK:
-1. Describe what you observe in 1-2 concise sentences
-2. Focus on: people present, their actions, and any objects they are holding or interacting with
-3. Note any potentially dangerous items (weapons, suspicious objects)
-
-RULES:
-- Only describe what is VISIBLE in the image(s)
-- Do NOT speculate about intent or identity
-- Do NOT make assumptions about what happened before or after
-- Be factual and objective
-- If you see a weapon (gun, knife, etc.), explicitly mention it
-
-OUTPUT FORMAT:
-Observation: [1-2 sentences describing the scene]
-Objects: [list key objects detected, especially any weapons]
-Risk_Level: [LOW / MEDIUM / HIGH]"""
+# Request timeout in seconds
+BLIP_API_TIMEOUT = 30
 
 # ============================================================
-# Model Configuration
+# Risk Assessment Keywords
+# ============================================================
+
+# Keywords that indicate potential danger (for risk assessment)
+DANGER_KEYWORDS = [
+    "gun",
+    "pistol",
+    "rifle",
+    "firearm",
+    "weapon",
+    "shooting",
+    "knife",
+    "blade",
+    "sword",
+    "stabbing",
+    "fighting",
+    "attack",
+    "hitting",
+    "punching",
+    "kicking",
+    "blood",
+    "injured",
+    "violence",
+    "aggressive",
+    "masked",
+    "robbery",
+    "stealing",
+    "threat",
+]
+
+MEDIUM_RISK_KEYWORDS = [
+    "running",
+    "chasing",
+    "arguing",
+    "yelling",
+    "suspicious",
+    "hiding",
+    "crawling",
+    "climbing",
+    "breaking",
+]
+
+# ============================================================
+# YOLO Model Configuration
 # ============================================================
 
 # YOLOv8 model for object detection
@@ -63,7 +95,6 @@ DETECTION_CLASSES = {
     39: ("bottle", False),
     43: ("knife", True),  # DANGEROUS
     76: ("scissors", True),  # DANGEROUS
-    # Note: COCO does not have "gun" - Claude Vision will identify firearms
 }
 
 # IDs of dangerous objects (triggers HIGH priority)
@@ -79,7 +110,7 @@ DEFAULT_FPS = 1
 # Maximum frames to extract from video
 MAX_FRAMES = 30
 
-# Maximum frames to send to Claude Vision (cost control)
+# Maximum frames to send to vision model (cost/performance control)
 MAX_FRAMES_FOR_VISION = 3
 
 # Temporary directory for extracted frames
@@ -93,7 +124,3 @@ TEMP_FRAMES_DIR = Path("./temp_frames")
 SAFETY_SAFE = "SAFE"
 SAFETY_UNSAFE = "UNSAFE"
 SAFETY_REVIEW = "REVIEW"
-
-# Rule: If Claude reports HIGH risk, mark as UNSAFE
-# Rule: If dangerous object detected by YOLO, mark as UNSAFE
-# Rule: If no person detected, mark as SAFE

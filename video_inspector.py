@@ -1,25 +1,28 @@
 # Video Inspection System
 # ========================
-# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
+# Architecture: YOLO Detection → Frame Gating → BLIP API → Rule Engine
 #
 # Flow:
 # 1. Extract frames from video
 # 2. Detect objects (people, weapons, etc.) using YOLOv8
-# 3. Gate frames (decide if LLM is needed)
-# 4. Send selected frames to Claude Vision for semantic understanding
+# 3. Gate frames (decide if vision model is needed)
+# 4. Send frames to remote BLIP API for captioning
 # 5. Apply rule engine for final SAFE/UNSAFE decision
 
 import os
 import base64
+import requests
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 
 import cv2
 
 from config import (
-    ANTHROPIC_API_KEY,
-    CLAUDE_MODEL,
-    CLAUDE_VISION_PROMPT,
+    BLIP_ANALYZE_ENDPOINT,
+    BLIP_HEALTH_ENDPOINT,
+    BLIP_API_TIMEOUT,
+    DANGER_KEYWORDS,
+    MEDIUM_RISK_KEYWORDS,
     YOLO_MODEL_PATH,
     DETECTION_CONFIDENCE_THRESHOLD,
     DETECTION_CLASSES,
@@ -54,10 +57,6 @@ def extract_frames(video_path: str, fps: int = DEFAULT_FPS) -> List[str]:
 
     Returns:
         List of absolute paths to extracted frame images
-
-    Raises:
-        FileNotFoundError: If video file doesn't exist
-        ValueError: If video cannot be opened or has no frames
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
@@ -73,7 +72,6 @@ def extract_frames(video_path: str, fps: int = DEFAULT_FPS) -> List[str]:
         cap.release()
         raise ValueError(f"Video has no frames: {video_path}")
 
-    # Calculate frame interval
     frame_interval = max(1, int(video_fps / fps))
 
     temp_dir = ensure_temp_dir()
@@ -95,7 +93,6 @@ def extract_frames(video_path: str, fps: int = DEFAULT_FPS) -> List[str]:
             frame_paths.append(frame_path)
             extracted_count += 1
 
-            # Limit total frames
             if extracted_count >= MAX_FRAMES:
                 break
 
@@ -114,17 +111,11 @@ def detect_objects(frame_paths: List[str]) -> Dict:
     """
     Run YOLOv8 object detection on extracted frames.
 
-    Detects people, weapons, and other relevant objects.
-
     Args:
         frame_paths: List of absolute paths to frame images
 
     Returns:
-        Dictionary containing:
-        - frames_with_people: List of frame indices with people
-        - frames_with_danger: List of frame indices with dangerous objects
-        - all_detections: Detailed detections per frame
-        - summary: Object counts and types
+        Dictionary with detection results
     """
     from ultralytics import YOLO
 
@@ -156,11 +147,9 @@ def detect_objects(frame_paths: List[str]) -> Dict:
                 if confidence < DETECTION_CONFIDENCE_THRESHOLD:
                     continue
 
-                # Check if this class is in our detection list
                 if cls_id in DETECTION_CLASSES:
                     class_name, is_dangerous = DETECTION_CLASSES[cls_id]
                 else:
-                    # Include any detected class
                     class_name = model.names.get(cls_id, f"class_{cls_id}")
                     is_dangerous = cls_id in DANGEROUS_CLASS_IDS
 
@@ -176,14 +165,11 @@ def detect_objects(frame_paths: List[str]) -> Dict:
                     }
                 )
 
-                # Track counts
                 object_counts[class_name] = object_counts.get(class_name, 0) + 1
 
-                # Track person presence
                 if cls_id == PERSON_CLASS_ID:
                     frame_detections["has_person"] = True
 
-                # Track dangerous objects
                 if is_dangerous:
                     frame_detections["has_danger"] = True
 
@@ -213,30 +199,24 @@ def gate_frames(
     frame_paths: List[str], detection_result: Dict
 ) -> Tuple[bool, List[str], str]:
     """
-    Decide whether to invoke Claude Vision and select best frames.
-
-    Implements cost/accuracy control by skipping LLM for safe videos.
+    Decide whether to invoke vision model and select best frames.
 
     Args:
         frame_paths: All extracted frame paths
         detection_result: Output from detect_objects()
 
     Returns:
-        Tuple of:
-        - needs_vision: Boolean - should we call Claude Vision?
-        - selected_frames: List of frame paths to send to Claude
-        - gate_reason: Explanation of the decision
+        Tuple of (needs_vision, selected_frames, gate_reason)
     """
     frames_with_people = detection_result["frames_with_people"]
     frames_with_danger = detection_result["frames_with_danger"]
 
-    # Rule 1: No person detected → SAFE, skip LLM
+    # Rule 1: No person detected → SAFE, skip vision model
     if not frames_with_people:
         return False, [], "No person detected - footage is safe"
 
-    # Rule 2: Dangerous object detected → HIGH priority, use LLM
+    # Rule 2: Dangerous object detected → HIGH priority
     if frames_with_danger:
-        # Select frames with danger + some with people
         priority_indices = list(set(frames_with_danger + frames_with_people[:2]))
         priority_indices = sorted(priority_indices)[:MAX_FRAMES_FOR_VISION]
         selected = [frame_paths[i] for i in priority_indices]
@@ -247,11 +227,9 @@ def gate_frames(
         )
 
     # Rule 3: Person detected, no danger → Normal priority
-    # Select frames uniformly across video
     if len(frames_with_people) <= MAX_FRAMES_FOR_VISION:
         selected_indices = frames_with_people
     else:
-        # Sample uniformly
         step = len(frames_with_people) // MAX_FRAMES_FOR_VISION
         selected_indices = frames_with_people[::step][:MAX_FRAMES_FOR_VISION]
 
@@ -260,19 +238,22 @@ def gate_frames(
 
 
 # ============================================================
-# Function 4: Claude Vision Analysis
+# Function 4: BLIP API Analysis (Remote Docker)
 # ============================================================
 
 
-def encode_image_to_base64(image_path: str) -> str:
-    """Convert image file to base64 string."""
-    with open(image_path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8")
+def check_blip_api_health() -> bool:
+    """Check if BLIP API server is available."""
+    try:
+        response = requests.get(BLIP_HEALTH_ENDPOINT, timeout=5)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
 
 
-def analyze_with_claude_vision(frame_paths: List[str], detection_context: Dict) -> Dict:
+def analyze_with_blip_api(frame_paths: List[str], detection_context: Dict) -> Dict:
     """
-    Send frames to Claude Vision for semantic understanding.
+    Send frames to remote BLIP API for captioning.
 
     Args:
         frame_paths: Selected frame paths to analyze
@@ -280,114 +261,76 @@ def analyze_with_claude_vision(frame_paths: List[str], detection_context: Dict) 
 
     Returns:
         Dictionary with:
-        - observation: What Claude sees
-        - objects: Key objects identified
-        - risk_level: LOW/MEDIUM/HIGH
-        - raw_response: Full Claude response
+        - captions: List of generated captions
+        - combined_caption: Merged description
+        - risk_level: LOW/MEDIUM/HIGH based on keywords
     """
-    from anthropic import Anthropic
+    captions = []
 
-    api_key = ANTHROPIC_API_KEY
-    if not api_key:
-        raise ValueError(
-            "ANTHROPIC_API_KEY environment variable is not set. "
-            "Please set it to use Claude Vision."
-        )
+    for frame_path in frame_paths:
+        # Read and encode image as base64
+        with open(frame_path, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
 
-    client = Anthropic(api_key=api_key)
+        # Send to BLIP API
+        try:
+            response = requests.post(
+                BLIP_ANALYZE_ENDPOINT,
+                json={"image": image_data},
+                timeout=BLIP_API_TIMEOUT,
+            )
 
-    # Build content with images
-    content = []
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success"):
+                    captions.append(result.get("caption", ""))
+                else:
+                    print(f"      [WARN] API error: {result.get('error')}")
+            else:
+                print(f"      [WARN] API returned status {response.status_code}")
 
-    # Add context about YOLO detections
-    object_summary = ", ".join(
-        f"{count} {name}"
-        for name, count in detection_context.get("object_counts", {}).items()
-    )
-    if object_summary:
-        content.append(
-            {
-                "type": "text",
-                "text": f"Context: YOLO detected these objects across frames: {object_summary}",
-            }
-        )
+        except requests.exceptions.Timeout:
+            print(f"      [WARN] API timeout for frame: {frame_path}")
+        except requests.exceptions.RequestException as e:
+            print(f"      [WARN] API error: {e}")
 
-    # Add frames as images
-    for i, frame_path in enumerate(frame_paths):
-        image_data = encode_image_to_base64(frame_path)
+    # Combine captions
+    combined_caption = " ".join(captions) if captions else "Unable to analyze frames"
 
-        # Determine media type
-        ext = Path(frame_path).suffix.lower()
-        media_type = "image/png" if ext == ".png" else "image/jpeg"
+    # Assess risk based on keywords
+    risk_level = assess_risk_from_caption(combined_caption)
 
-        content.append(
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": image_data,
-                },
-            }
-        )
-
-    # Add final instruction
-    content.append(
-        {
-            "type": "text",
-            "text": "Analyze these surveillance frame(s) and provide your assessment.",
-        }
-    )
-
-    # Call Claude Vision
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=500,
-        system=CLAUDE_VISION_PROMPT,
-        messages=[{"role": "user", "content": content}],
-    )
-
-    raw_response = response.content[0].text.strip()
-
-    # Parse Claude's response
-    return parse_claude_response(raw_response)
-
-
-def parse_claude_response(response: str) -> Dict:
-    """
-    Parse Claude's structured response.
-
-    Expected format:
-    Observation: [text]
-    Objects: [text]
-    Risk_Level: [LOW/MEDIUM/HIGH]
-    """
-    result = {
-        "observation": "",
-        "objects": "",
-        "risk_level": "LOW",
-        "raw_response": response,
+    return {
+        "captions": captions,
+        "combined_caption": combined_caption,
+        "risk_level": risk_level,
+        "observation": combined_caption,
     }
 
-    lines = response.strip().split("\n")
-    for line in lines:
-        line_lower = line.lower()
-        if line_lower.startswith("observation:"):
-            result["observation"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("objects:"):
-            result["objects"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("risk_level:") or line_lower.startswith(
-            "risk level:"
-        ):
-            level = line.split(":", 1)[1].strip().upper()
-            if level in ["LOW", "MEDIUM", "HIGH"]:
-                result["risk_level"] = level
 
-    # If parsing failed, use raw response as observation
-    if not result["observation"]:
-        result["observation"] = response
+def assess_risk_from_caption(caption: str) -> str:
+    """
+    Assess risk level based on keywords in caption.
 
-    return result
+    Args:
+        caption: Generated caption text
+
+    Returns:
+        Risk level: LOW, MEDIUM, or HIGH
+    """
+    caption_lower = caption.lower()
+
+    # Check for danger keywords
+    for keyword in DANGER_KEYWORDS:
+        if keyword in caption_lower:
+            return "HIGH"
+
+    # Check for medium risk keywords
+    for keyword in MEDIUM_RISK_KEYWORDS:
+        if keyword in caption_lower:
+            return "MEDIUM"
+
+    return "LOW"
 
 
 # ============================================================
@@ -401,16 +344,9 @@ def classify_safety(
     """
     Apply rule engine to determine final safety classification.
 
-    Rules:
-    1. No person detected → SAFE
-    2. Dangerous object detected by YOLO → UNSAFE
-    3. Claude reports HIGH risk → UNSAFE
-    4. Claude reports MEDIUM risk → REVIEW
-    5. Otherwise → SAFE
-
     Args:
         detection_result: YOLO detection output
-        vision_result: Claude Vision analysis (can be None)
+        vision_result: BLIP analysis (can be None)
 
     Returns:
         Tuple of (safety_level, explanation)
@@ -431,7 +367,7 @@ def classify_safety(
                 if name in object_counts:
                     return SAFETY_UNSAFE, f"Dangerous object detected: {name}"
 
-    # Rule 3-4: Claude Vision analysis
+    # Rule 3-4: Vision analysis
     if vision_result:
         risk_level = vision_result.get("risk_level", "LOW")
 
@@ -465,7 +401,7 @@ def build_final_summary(
 
     Args:
         detection_result: YOLO detection output
-        vision_result: Claude Vision analysis (can be None)
+        vision_result: BLIP analysis (can be None)
         safety_level: SAFE/UNSAFE/REVIEW
         safety_explanation: Explanation from rule engine
 
@@ -474,19 +410,24 @@ def build_final_summary(
     """
     parts = []
 
-    # Add observation from Claude Vision
+    # Add observation from BLIP
     if vision_result and vision_result.get("observation"):
-        parts.append(vision_result["observation"])
+        observation = vision_result["observation"].strip()
+        if observation and observation != "Unable to analyze frames":
+            observation = observation[0].upper() + observation[1:]
+            if not observation.endswith("."):
+                observation += "."
+            parts.append(observation)
 
     # Add safety verdict
     if safety_level == SAFETY_SAFE:
         verdict = "The footage is SAFE."
     elif safety_level == SAFETY_UNSAFE:
-        verdict = "⚠️ The footage is UNSAFE and requires attention."
+        verdict = "WARNING: The footage is UNSAFE and requires attention."
     else:
-        verdict = "⚠️ The footage requires REVIEW."
+        verdict = "WARNING: The footage requires REVIEW."
 
-    # If no Claude analysis, use explanation
+    # If no vision analysis, use explanation
     if not parts:
         parts.append(safety_explanation)
 
@@ -507,8 +448,8 @@ def inspect_video(video_path: str) -> str:
     Architecture:
     1. Extract frames from video
     2. Detect objects using YOLOv8
-    3. Gate frames (decide if LLM needed)
-    4. Analyze with Claude Vision (if needed)
+    3. Gate frames (decide if vision model needed)
+    4. Analyze with BLIP API (if needed)
     5. Apply rule engine for safety classification
     6. Generate final summary
 
@@ -542,18 +483,20 @@ def inspect_video(video_path: str) -> str:
         )
         print(f"      {gate_reason}")
 
-        # Step 4: Claude Vision (if needed)
+        # Step 4: BLIP API (if needed)
         vision_result = None
         if needs_vision:
-            print(
-                f"[4/6] Analyzing {len(selected_frames)} frames with Claude Vision..."
-            )
-            vision_result = analyze_with_claude_vision(
-                selected_frames, detection_result
-            )
-            print(f"      Risk Level: {vision_result['risk_level']}")
+            # Check API health first
+            if check_blip_api_health():
+                print(f"[4/6] Sending {len(selected_frames)} frames to BLIP API...")
+                vision_result = analyze_with_blip_api(selected_frames, detection_result)
+                print(f"      Risk Level: {vision_result['risk_level']}")
+                print(f"      Caption: {vision_result['combined_caption']}")
+            else:
+                print("[4/6] BLIP API not available - skipping vision analysis")
+                print(f"      Check server at: {BLIP_ANALYZE_ENDPOINT}")
         else:
-            print("[4/6] Skipping Claude Vision (not needed)")
+            print("[4/6] Skipping vision analysis (not needed)")
 
         # Step 5: Rule engine
         print("[5/6] Applying safety rules...")

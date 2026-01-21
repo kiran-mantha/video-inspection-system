@@ -1,16 +1,15 @@
 # Video Inspection System - Requirements
 # ======================================
-# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
+# Architecture: YOLO Detection → Frame Gating → BLIP API → Rule Engine
 
 # Core dependencies
 opencv-python>=4.8.0
-numpy>=1.24.0
 
 # Object detection
 ultralytics>=8.0.0  # YOLOv8
 
-# Claude API for Vision analysis
-anthropic>=0.18.0
+# HTTP client for BLIP API
+requests>=2.28.0
 
 # System monitoring (optional, for test.py)
 psutil>=5.9.0

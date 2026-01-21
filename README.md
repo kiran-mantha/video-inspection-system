@@ -1,6 +1,6 @@
 # Video Inspection System
 
-A practical, production-oriented video surveillance analysis system.
+A practical, production-oriented video surveillance analysis system using local models.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Object Detection (YOLOv8)
  ↓
 Frame Gating (Cost Control)
  ↓
-Claude Vision (Semantic Analysis)
+BLIP Vision (Local Captioning)
  ↓
 Rule Engine
  ↓
@@ -23,18 +23,18 @@ SAFE / UNSAFE + Summary
 ## Features
 
 - **Object Detection**: YOLOv8n detects people, weapons (knife, scissors), and other objects
-- **Frame Gating**: Reduces costs by skipping LLM calls when no person is detected
-- **Claude Vision**: Sends selected frames for semantic understanding
-- **Rule Engine**: Deterministic safety classification
+- **Frame Gating**: Skips vision model when no person is detected
+- **BLIP Vision**: Local image captioning (no API required!)
+- **Rule Engine**: Keyword-based risk assessment + deterministic safety classification
+- **GPU Support**: Automatically uses CUDA if available
 - **System Monitoring**: Tracks CPU, RAM, and GPU usage during analysis
 
-## Design Principles
+## Models Used
 
-1. **Deterministic before probabilistic** - YOLO runs first
-2. **Cheap models before expensive models** - LLM called only when needed
-3. **Explain, don't guess** - Claude describes only what's visible
-4. **Rules over intuition** - Final decision is rule-based
-5. **Human-readable output** - Clear safety verdicts
+| Model | Purpose | Size |
+|-------|---------|------|
+| `yolov8n.pt` | Object detection | ~6 MB |
+| `Salesforce/blip-image-captioning-large` | Image captioning | ~1.5 GB |
 
 ## Installation
 
@@ -42,19 +42,9 @@ SAFE / UNSAFE + Summary
 # Create virtual environment
 python -m venv virtual_env
 virtual_env\Scripts\activate  # Windows
-# source virtual_env/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
-```
-
-## Configuration
-
-Set your Claude API key:
-
-```bash
-set ANTHROPIC_API_KEY=your_api_key_here  # Windows
-# export ANTHROPIC_API_KEY=your_api_key_here  # Linux/Mac
 ```
 
 ## Usage
@@ -63,58 +53,57 @@ set ANTHROPIC_API_KEY=your_api_key_here  # Windows
 python test.py
 ```
 
-Then enter the path to your video file when prompted.
+Enter the path to your video file when prompted.
 
 ### Example Output
 
 ```
 ======================================================================
 VIDEO INSPECTION SYSTEM - TEST
-Architecture: YOLO → Frame Gating → Claude Vision → Rule Engine
+Architecture: YOLO → Frame Gating → BLIP Vision → Rule Engine
 ======================================================================
 
-📁 Video: C:\Users\Downloads\surveillance.mp4
-
-📹 Extracting frames from video...
-   Extracted 15 frames
-🔍 Running object detection (YOLO)...
-   Found people in 12 frames
-   Objects: {'person': 12, 'knife': 3}
-🚦 Applying frame gating logic...
-   Potentially dangerous objects detected - requires analysis
-🧠 Analyzing 3 frames with Claude Vision...
-   Risk Level: HIGH
-⚖️  Applying safety rules...
-   Classification: UNSAFE
-🧹 Cleaned up temporary frames
+[1/6] Extracting frames from: video.mp4
+      Extracted 15 frames
+[2/6] Running object detection (YOLO)...
+      Found people in 12 frames
+      Objects: {'person': 12}
+[3/6] Applying frame gating logic...
+      Person detected - analyzing activity
+[4/6] Analyzing 3 frames with BLIP...
+      Risk Level: HIGH
+      Caption: a man holding a gun walking down the street
+[5/6] Applying safety rules...
+      Classification: UNSAFE
+[6/6] Cleaned up temporary frames
 
 ======================================================================
-📋 FINAL VERDICT:
+FINAL VERDICT:
 ======================================================================
 
-A person is visible holding what appears to be a knife while moving through the scene.
-⚠️ The footage is UNSAFE and requires attention.
-
-⏱️  Total Processing Time: 4.23 seconds
+A man holding a gun walking down the street. WARNING: The footage is UNSAFE.
 ```
+
+## Risk Assessment
+
+BLIP generates captions, and the system checks for keywords:
+
+**HIGH Risk Keywords:**
+- gun, pistol, rifle, firearm, weapon, knife, blade, sword
+- fighting, attack, violence, blood, injured
+
+**MEDIUM Risk Keywords:**
+- running, chasing, arguing, suspicious, hiding
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `video_inspector.py` | Main orchestration and all detection logic |
-| `config.py` | Configuration settings and prompts |
+| `video_inspector.py` | Main orchestration and detection logic |
+| `config.py` | Configuration and keyword lists |
 | `utils.py` | Utility functions |
 | `test.py` | Test script with system monitoring |
 | `system_monitor.py` | CPU/RAM/GPU monitoring |
-
-## Requirements
-
-- Python 3.9+
-- OpenCV
-- Ultralytics (YOLOv8)
-- Anthropic SDK
-- psutil (optional, for monitoring)
 
 ## License
 
