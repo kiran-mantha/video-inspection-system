@@ -10,16 +10,13 @@
 # 5. Apply rule engine for final SAFE/UNSAFE decision
 
 import os
-import base64
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 
 import cv2
 
 from config import (
-    ANTHROPIC_API_KEY,
-    CLAUDE_MODEL,
-    CLAUDE_VISION_PROMPT,
+    USE_LOCAL_MODELS,
     YOLO_MODEL_PATH,
     DETECTION_CONFIDENCE_THRESHOLD,
     DETECTION_CLASSES,
@@ -260,19 +257,16 @@ def gate_frames(
 
 
 # ============================================================
-# Function 4: Claude Vision Analysis
+# Function 4: Vision Analysis (API or Local)
 # ============================================================
 
 
-def encode_image_to_base64(image_path: str) -> str:
-    """Convert image file to base64 string."""
-    with open(image_path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8")
-
-
-def analyze_with_claude_vision(frame_paths: List[str], detection_context: Dict) -> Dict:
+def analyze_with_vision(frame_paths: List[str], detection_context: Dict) -> Dict:
     """
-    Send frames to Claude Vision for semantic understanding.
+    Analyze frames using the configured vision analyzer.
+
+    Uses Claude Vision API or local BLIP + Mistral models based on
+    the USE_LOCAL_MODELS configuration setting.
 
     Args:
         frame_paths: Selected frame paths to analyze
@@ -280,114 +274,30 @@ def analyze_with_claude_vision(frame_paths: List[str], detection_context: Dict) 
 
     Returns:
         Dictionary with:
-        - observation: What Claude sees
+        - observation: What was observed
         - objects: Key objects identified
         - risk_level: LOW/MEDIUM/HIGH
-        - raw_response: Full Claude response
+        - raw_response: Full response
     """
-    from anthropic import Anthropic
+    if USE_LOCAL_MODELS:
+        from local import LocalVisionAnalyzer
+        from config import BLIP_API_URL, MISTRAL_API_URL, MISTRAL_MODEL
 
-    api_key = ANTHROPIC_API_KEY
-    if not api_key:
-        raise ValueError(
-            "ANTHROPIC_API_KEY environment variable is not set. "
-            "Please set it to use Claude Vision."
+        analyzer = LocalVisionAnalyzer(
+            blip_url=BLIP_API_URL,
+            mistral_url=MISTRAL_API_URL,
+            mistral_model=MISTRAL_MODEL,
+        )
+    else:
+        from api import ClaudeVisionAnalyzer
+        from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+        analyzer = ClaudeVisionAnalyzer(
+            api_key=ANTHROPIC_API_KEY,
+            model=CLAUDE_MODEL,
         )
 
-    client = Anthropic(api_key=api_key)
-
-    # Build content with images
-    content = []
-
-    # Add context about YOLO detections
-    object_summary = ", ".join(
-        f"{count} {name}"
-        for name, count in detection_context.get("object_counts", {}).items()
-    )
-    if object_summary:
-        content.append(
-            {
-                "type": "text",
-                "text": f"Context: YOLO detected these objects across frames: {object_summary}",
-            }
-        )
-
-    # Add frames as images
-    for i, frame_path in enumerate(frame_paths):
-        image_data = encode_image_to_base64(frame_path)
-
-        # Determine media type
-        ext = Path(frame_path).suffix.lower()
-        media_type = "image/png" if ext == ".png" else "image/jpeg"
-
-        content.append(
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": image_data,
-                },
-            }
-        )
-
-    # Add final instruction
-    content.append(
-        {
-            "type": "text",
-            "text": "Analyze these surveillance frame(s) and provide your assessment.",
-        }
-    )
-
-    # Call Claude Vision
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=500,
-        system=CLAUDE_VISION_PROMPT,
-        messages=[{"role": "user", "content": content}],
-    )
-
-    raw_response = response.content[0].text.strip()
-
-    # Parse Claude's response
-    return parse_claude_response(raw_response)
-
-
-def parse_claude_response(response: str) -> Dict:
-    """
-    Parse Claude's structured response.
-
-    Expected format:
-    Observation: [text]
-    Objects: [text]
-    Risk_Level: [LOW/MEDIUM/HIGH]
-    """
-    result = {
-        "observation": "",
-        "objects": "",
-        "risk_level": "LOW",
-        "raw_response": response,
-    }
-
-    lines = response.strip().split("\n")
-    for line in lines:
-        line_lower = line.lower()
-        if line_lower.startswith("observation:"):
-            result["observation"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("objects:"):
-            result["objects"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("risk_level:") or line_lower.startswith(
-            "risk level:"
-        ):
-            level = line.split(":", 1)[1].strip().upper()
-            if level in ["LOW", "MEDIUM", "HIGH"]:
-                result["risk_level"] = level
-
-    # If parsing failed, use raw response as observation
-    if not result["observation"]:
-        result["observation"] = response
-
-    return result
+    return analyzer.analyze_frames(frame_paths, detection_context)
 
 
 # ============================================================
@@ -542,18 +452,17 @@ def inspect_video(video_path: str) -> str:
         )
         print(f"      {gate_reason}")
 
-        # Step 4: Claude Vision (if needed)
+        # Step 4: Vision Analysis (if needed)
         vision_result = None
         if needs_vision:
-            print(
-                f"[4/6] Analyzing {len(selected_frames)} frames with Claude Vision..."
+            backend = (
+                "local models (BLIP + Mistral)" if USE_LOCAL_MODELS else "Claude Vision"
             )
-            vision_result = analyze_with_claude_vision(
-                selected_frames, detection_result
-            )
+            print(f"[4/6] Analyzing {len(selected_frames)} frames with {backend}...")
+            vision_result = analyze_with_vision(selected_frames, detection_result)
             print(f"      Risk Level: {vision_result['risk_level']}")
         else:
-            print("[4/6] Skipping Claude Vision (not needed)")
+            print("[4/6] Skipping vision analysis (not needed)")
 
         # Step 5: Rule engine
         print("[5/6] Applying safety rules...")

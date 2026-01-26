@@ -1,0 +1,52 @@
+# Video Inspection System - Local Model Services
+# ===============================================
+# Docker Compose for BLIP and Mistral containers
+
+version: '3.8'
+
+services:
+  # BLIP Image Captioning Service
+  blip:
+    build:
+      context: ./blip
+      dockerfile: Dockerfile
+    container_name: blip
+    ports:
+      - "5050:5050"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Uncomment below if you have a GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Mistral LLM via Ollama
+  mistral:
+    build:
+      context: ./mistral
+      dockerfile: Dockerfile
+    container_name: ollama-mistral
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    # Uncomment below if you have a GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:
+    driver: local

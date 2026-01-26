@@ -14,6 +14,20 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Claude model to use for vision analysis
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
+# ============================================================
+# Model Backend Selection
+# ============================================================
+
+# Set to True to use local BLIP + Mistral models instead of Claude API
+USE_LOCAL_MODELS = False
+
+IP_ADDRESS = "100.65.72.122"
+
+# Local Model Configuration (when USE_LOCAL_MODELS = True)
+BLIP_API_URL = f"http://{IP_ADDRESS}:5050/analyze"
+MISTRAL_API_URL = f"http://{IP_ADDRESS}:11434/api/generate"
+MISTRAL_MODEL = "mistral"
+
 # Claude Vision prompt for frame analysis
 CLAUDE_VISION_PROMPT = """You are a security footage analyst. Analyze the provided frame(s) from surveillance footage.
 

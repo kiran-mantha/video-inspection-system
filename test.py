@@ -8,7 +8,7 @@ from system_monitor import MetricsCollector, capture_baseline, print_comparison
 from video_inspector import inspect_video
 
 # Video path to test (leave empty to prompt for input)
-VIDEO_PATH = ""
+VIDEO_PATH = "C:\\Users\\kiran\\Downloads\\stock-footage-a-shadowy-figure-stealthily-climbs-through-a-window-indicating-an-attempted-breakin-creating.mp4"
 
 
 def main():
