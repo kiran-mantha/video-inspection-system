@@ -1,14 +1,48 @@
 # Test script for Video Inspection System
 # ========================================
-# Tests the new architecture: YOLO → Frame Gating → Claude Vision → Rule Engine
+# Tests the architecture: YOLO → Frame Gating → Vision Analysis → Rule Engine
+#
+# Configure the settings below before running.
+# These override the defaults in config.py.
 
+import os
 import time
 
-from system_monitor import MetricsCollector, capture_baseline, print_comparison
-from video_inspector import inspect_video
+# ============================================================
+# TEST CONFIGURATION (edit these before running)
+# ============================================================
 
 # Video path to test (leave empty to prompt for input)
 VIDEO_PATH = ""
+
+# Model backend: set to "true" to use local LLaVA, "false" for Claude API
+USE_LOCAL_MODELS = "false"
+
+# Ollama settings (used when USE_LOCAL_MODELS is "true")
+OLLAMA_IP = "localhost"
+OLLAMA_PORT = "11434"
+OLLAMA_VISION_MODEL = "llava:13b"
+
+# Claude API key (used when USE_LOCAL_MODELS is "false")
+ANTHROPIC_API_KEY = ""
+
+# ============================================================
+# Apply overrides to environment BEFORE importing config
+# ============================================================
+
+os.environ["USE_LOCAL_MODELS"] = USE_LOCAL_MODELS
+os.environ["OLLAMA_IP"] = OLLAMA_IP
+os.environ["OLLAMA_PORT"] = OLLAMA_PORT
+os.environ["OLLAMA_VISION_MODEL"] = OLLAMA_VISION_MODEL
+if ANTHROPIC_API_KEY:
+    os.environ["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+
+# ============================================================
+# Imports (AFTER env overrides)
+# ============================================================
+
+from system_monitor import MetricsCollector, capture_baseline, print_comparison
+from video_inspector import inspect_video
 
 
 def main():
@@ -29,9 +63,14 @@ def main():
         print("❌ Error: No video path provided")
         return
 
+    # Show active configuration
+    backend = "Local LLaVA (Ollama)" if USE_LOCAL_MODELS == "true" else "Claude API"
     print("=" * 70)
     print("VIDEO INSPECTION SYSTEM - TEST")
-    print("Architecture: YOLO → Frame Gating → Claude Vision → Rule Engine")
+    print(f"Backend: {backend}")
+    if USE_LOCAL_MODELS == "true":
+        print(f"Ollama: http://{OLLAMA_IP}:{OLLAMA_PORT}")
+        print(f"Vision Model: {OLLAMA_VISION_MODEL}")
     print("=" * 70)
     print(f"\n📁 Video: {video_path}")
 

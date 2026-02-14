@@ -1,12 +1,12 @@
 # Video Inspection System
 # ========================
-# Architecture: YOLO Detection → Frame Gating → Claude Vision → Rule Engine
+# Architecture: YOLO Detection → Frame Gating → Vision Analysis → Rule Engine
 #
 # Flow:
 # 1. Extract frames from video
 # 2. Detect objects (people, weapons, etc.) using YOLOv8
 # 3. Gate frames (decide if LLM is needed)
-# 4. Send selected frames to Claude Vision for semantic understanding
+# 4. Send selected frames to Vision Model for semantic understanding
 # 5. Apply rule engine for final SAFE/UNSAFE decision
 
 import os
@@ -17,9 +17,12 @@ from pathlib import Path
 import cv2
 
 from config import (
+    USE_LOCAL_MODELS,
+    OLLAMA_API_URL,
+    OLLAMA_VISION_MODEL,
     ANTHROPIC_API_KEY,
     CLAUDE_MODEL,
-    CLAUDE_VISION_PROMPT,
+    ANALYSIS_SYSTEM_PROMPT,
     YOLO_MODEL_PATH,
     DETECTION_CONFIDENCE_THRESHOLD,
     DETECTION_CLASSES,
@@ -37,6 +40,7 @@ from utils import (
     cleanup_frames,
     calculate_timestamp,
 )
+from local import LocalVisionAnalyzer
 
 
 # ============================================================
@@ -343,7 +347,7 @@ def analyze_with_claude_vision(frame_paths: List[str], detection_context: Dict) 
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=500,
-        system=CLAUDE_VISION_PROMPT,
+        system=ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     )
 
@@ -391,7 +395,55 @@ def parse_claude_response(response: str) -> Dict:
 
 
 # ============================================================
-# Function 5: Rule Engine (Safety Classification)
+# Function 5: Vision Analyzer Factory & Wrapper
+# ============================================================
+
+
+def get_vision_analyzer():
+    """
+    Factory function to get the appropriate vision analyzer.
+
+    Based on USE_LOCAL_MODELS config, returns either LocalVisionAnalyzer
+    (LLaVA via Ollama) or None (use Claude API path).
+
+    Returns:
+        LocalVisionAnalyzer instance or None
+    """
+    if USE_LOCAL_MODELS:
+        return LocalVisionAnalyzer(
+            ollama_url=OLLAMA_API_URL,
+            vision_model=OLLAMA_VISION_MODEL,
+        )
+    return None
+
+
+def analyze_with_vision(frame_paths: List[str], detection_context: Dict) -> Dict:
+    """
+    Analyze frames using the configured vision analyzer.
+
+    Uses local LLaVA model or Claude Vision API based on
+    the USE_LOCAL_MODELS configuration setting.
+
+    Args:
+        frame_paths: Selected frame paths to analyze
+        detection_context: Object detection results for context
+
+    Returns:
+        Dictionary with:
+        - observation: What was observed
+        - objects: Key objects identified
+        - risk_level: LOW/MEDIUM/HIGH
+        - raw_response: Full response
+    """
+    analyzer = get_vision_analyzer()
+    if analyzer:
+        return analyzer.analyze_frames(frame_paths, detection_context)
+    else:
+        return analyze_with_claude_vision(frame_paths, detection_context)
+
+
+# ============================================================
+# Function 6: Rule Engine (Safety Classification)
 # ============================================================
 
 
@@ -478,19 +530,9 @@ def build_final_summary(
     if vision_result and vision_result.get("observation"):
         parts.append(vision_result["observation"])
 
-    # Add safety verdict
-    if safety_level == SAFETY_SAFE:
-        verdict = "The footage is SAFE."
-    elif safety_level == SAFETY_UNSAFE:
-        verdict = "⚠️ The footage is UNSAFE and requires attention."
-    else:
-        verdict = "⚠️ The footage requires REVIEW."
-
     # If no Claude analysis, use explanation
     if not parts:
         parts.append(safety_explanation)
-
-    parts.append(verdict)
 
     return " ".join(parts)
 
@@ -542,18 +584,15 @@ def inspect_video(video_path: str) -> str:
         )
         print(f"      {gate_reason}")
 
-        # Step 4: Claude Vision (if needed)
+        # Step 4: Vision Analysis (if needed)
         vision_result = None
         if needs_vision:
-            print(
-                f"[4/6] Analyzing {len(selected_frames)} frames with Claude Vision..."
-            )
-            vision_result = analyze_with_claude_vision(
-                selected_frames, detection_result
-            )
+            backend = "local LLaVA (Ollama)" if USE_LOCAL_MODELS else "Claude Vision"
+            print(f"[4/6] Analyzing {len(selected_frames)} frames with {backend}...")
+            vision_result = analyze_with_vision(selected_frames, detection_result)
             print(f"      Risk Level: {vision_result['risk_level']}")
         else:
-            print("[4/6] Skipping Claude Vision (not needed)")
+            print("[4/6] Skipping vision analysis (not needed)")
 
         # Step 5: Rule engine
         print("[5/6] Applying safety rules...")

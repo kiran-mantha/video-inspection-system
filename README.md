@@ -1,6 +1,6 @@
 # Video Inspection System
 
-A practical, production-oriented video surveillance analysis system.
+A practical, production-oriented video surveillance analysis system with support for both cloud (Claude API) and local (LLaVA via Ollama) vision models.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Object Detection (YOLOv8)
  ↓
 Frame Gating (Cost Control)
  ↓
-Claude Vision (Semantic Analysis)
+Vision Analysis (Claude API or LLaVA)
  ↓
 Rule Engine
  ↓
@@ -22,19 +22,11 @@ SAFE / UNSAFE + Summary
 
 ## Features
 
-- **Object Detection**: YOLOv8n detects people, weapons (knife, scissors), and other objects
+- **Object Detection**: Custom YOLOv8 model detects people, weapons (gun, knife), fire, smoke, and violence
 - **Frame Gating**: Reduces costs by skipping LLM calls when no person is detected
-- **Claude Vision**: Sends selected frames for semantic understanding
+- **Dual Vision Backend**: Claude Vision API or local LLaVA via Ollama
 - **Rule Engine**: Deterministic safety classification
 - **System Monitoring**: Tracks CPU, RAM, and GPU usage during analysis
-
-## Design Principles
-
-1. **Deterministic before probabilistic** - YOLO runs first
-2. **Cheap models before expensive models** - LLM called only when needed
-3. **Explain, don't guess** - Claude describes only what's visible
-4. **Rules over intuition** - Final decision is rule-based
-5. **Human-readable output** - Clear safety verdicts
 
 ## Installation
 
@@ -48,73 +40,82 @@ virtual_env\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-## Configuration
+## Running
 
-Set your Claude API key:
+All configuration is done in `test.py`. Open the file and edit the settings at the top:
 
-```bash
-set ANTHROPIC_API_KEY=your_api_key_here  # Windows
-# export ANTHROPIC_API_KEY=your_api_key_here  # Linux/Mac
+```python
+# Video path to test (leave empty to prompt for input)
+VIDEO_PATH = ""
+
+# Model backend: "true" for local LLaVA, "false" for Claude API
+USE_LOCAL_MODELS = "true"
+
+# Ollama settings (used when USE_LOCAL_MODELS is "true")
+OLLAMA_IP = "localhost"
+OLLAMA_PORT = "11434"
+OLLAMA_VISION_MODEL = "llava:13b"
+
+# Claude API key (used when USE_LOCAL_MODELS is "false")
+ANTHROPIC_API_KEY = ""
 ```
 
-## Usage
+Then run:
 
 ```bash
 python test.py
 ```
 
-Then enter the path to your video file when prompted.
+### Using Local LLaVA (Ollama)
 
-### Example Output
+1. Build and run the Ollama Docker container:
 
+```bash
+docker build -t ollama-llava docker/ollama/
+docker run -d -p 11434:11434 --name ollama-llava ollama-llava
 ```
-======================================================================
-VIDEO INSPECTION SYSTEM - TEST
-Architecture: YOLO → Frame Gating → Claude Vision → Rule Engine
-======================================================================
 
-📁 Video: C:\Users\Downloads\surveillance.mp4
+2. In `test.py`, set:
 
-📹 Extracting frames from video...
-   Extracted 15 frames
-🔍 Running object detection (YOLO)...
-   Found people in 12 frames
-   Objects: {'person': 12, 'knife': 3}
-🚦 Applying frame gating logic...
-   Potentially dangerous objects detected - requires analysis
-🧠 Analyzing 3 frames with Claude Vision...
-   Risk Level: HIGH
-⚖️  Applying safety rules...
-   Classification: UNSAFE
-🧹 Cleaned up temporary frames
-
-======================================================================
-📋 FINAL VERDICT:
-======================================================================
-
-A person is visible holding what appears to be a knife while moving through the scene.
-⚠️ The footage is UNSAFE and requires attention.
-
-⏱️  Total Processing Time: 4.23 seconds
+```python
+USE_LOCAL_MODELS = "true"
+OLLAMA_IP = "localhost"
+OLLAMA_PORT = "11434"
 ```
+
+3. Run `python test.py`
+
+### Using Claude API
+
+1. In `test.py`, set:
+
+```python
+USE_LOCAL_MODELS = "false"
+ANTHROPIC_API_KEY = "your_api_key_here"
+```
+
+2. Run `python test.py`
 
 ## Files
 
 | File | Purpose |
 |------|---------|
+| `test.py` | Entry point — configure and run here |
 | `video_inspector.py` | Main orchestration and all detection logic |
-| `config.py` | Configuration settings and prompts |
+| `config.py` | Default configuration settings and prompts |
 | `utils.py` | Utility functions |
-| `test.py` | Test script with system monitoring |
 | `system_monitor.py` | CPU/RAM/GPU monitoring |
+| `local/` | Local model module (LLaVA via Ollama) |
+| `docker/ollama/` | Dockerfile for Ollama with LLaVA |
 
 ## Requirements
 
 - Python 3.9+
 - OpenCV
 - Ultralytics (YOLOv8)
-- Anthropic SDK
+- Anthropic SDK (for Claude API backend)
 - psutil (optional, for monitoring)
+- Docker (for local LLaVA backend)
 
 ## License
 
